@@ -68,6 +68,7 @@
     var parts = [];
     if (x.reg) parts.push('ทะเบียน ' + x.reg);
     if (x.callNo) parts.push('เลขเรียก ' + x.callNo);
+    if (x.source) parts.push('ส่งมาจาก ' + x.source);
     if (x.state === 'waiting') parts.push('ลงรับ ' + x.received + ' ยังไม่ขึ้นชั้น');
     if (x.state === 'cancel' && x.note) parts.push(x.note);
     if (parts.length) d.appendChild(el('div', 'sub', parts.join(' · ')));
