@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ค้นหาหนังสือ · ระบบห้องสมุด</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-page="search">
+<header class="topbar"><div class="in">
+  <div class="logo">L</div>
+  <div><div class="app">ระบบห้องสมุด</div><div class="pg">ค้นหาหนังสือ</div></div>
+  <span class="role">ทุกคน</span>
+</div></header>
+<main>
+
+  <section class="card">
+    <input id="q" type="search" placeholder="ชื่อหนังสือ เลขรับ เลขทะเบียน เลขเรียก หรือหมวด" autocomplete="off">
+    <div class="hint" style="margin-top:6px">พิมพ์ไม่ครบหรือผิดเล็กน้อยก็ค้นเจอ หลายคำเว้นวรรคได้ เช่น "กฎหมาย ที่ดิน" หรือ "พ.ร.บ. คอมพิวเตอร์"</div>
+    <div id="chips" class="chips"></div>
+    <div id="info" class="sub" style="margin-top:10px">กำลังโหลด...</div>
+    <div id="results" class="list"></div>
+    <div id="pager" class="pager hidden">
+      <button id="prev" type="button" class="ghost small">‹ ก่อนหน้า</button>
+      <span id="pageInfo" class="sub"></span>
+      <button id="next" type="button" class="ghost small">ถัดไป ›</button>
+    </div>
+    <div id="msg" class="msg" role="alert"></div>
+  </section>
+
+  <a class="btn" href="./">กลับหน้ายืม-คืน</a>
+</main>
+
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script>
+  var STATUS = [
+    ['all', 'ทุกสถานะ'], ['shelf', 'อยู่บนชั้น'], ['out', 'ถูกยืม'],
+    ['overdue', 'เกินกำหนด'], ['waiting', 'รอจัดหมวด'], ['cancel', 'ยกเลิก']
+  ];
+  var BADGE = { shelf: 'b-ok', out: 'b-warn', overdue: 'b-err', waiting: 'b-mute', cancel: 'b-mute' };
+  var SHOW_COPIES = 3;
+  var current = 'all', page = 1, seq = 0, lastCounts = null;
+
+  function renderChips(counts) {
+    if (counts) lastCounts = counts;
+    var box = $('chips'); clear(box);
+    STATUS.forEach(function (s) {
+      var n = lastCounts && lastCounts[s[0]] != null ? ' (' + lastCounts[s[0]] + ')' : '';
+      var b = el('button', s[0] === current ? 'on' : '', s[1] + n);
+      b.type = 'button';
+      b.onclick = function () { current = s[0]; page = 1; search(); };
+      box.appendChild(b);
+    });
+  }
+
+  function summary(copies) {
+    var c = {};
+    copies.forEach(function (x) { c[x.stateLabel] = (c[x.stateLabel] || 0) + 1; });
+    return Object.keys(c).map(function (k) { return k + ' ' + c[k]; }).join(' · ');
+  }
+
+  function copyLine(x) {
+    var d = el('div', 'copyline');
+    var head = el('div', null, x.no);
+    head.appendChild(el('span', 'badge ' + (BADGE[x.state] || ''), x.stateLabel));
+    d.appendChild(head);
+    var parts = [];
+    if (x.reg) parts.push('ทะเบียน ' + x.reg);
+    if (x.callNo) parts.push('เลขเรียก ' + x.callNo);
+    if (x.state === 'waiting') parts.push('ลงรับ ' + x.received + ' ยังไม่ขึ้นชั้น');
+    if (x.state === 'cancel' && x.note) parts.push(x.note);
+    if (parts.length) d.appendChild(el('div', 'sub', parts.join(' · ')));
+    x.loans.forEach(function (l) {
+      var b = el('div', 'loan' + (l.overdue ? ' late' : ''));
+      b.appendChild(el('div', null, 'ผู้ยืม: ' + l.name + ' (' + l.pos + ')'));
+      b.appendChild(el('div', 'sub', 'ยืม ' + l.borrowed + ' · ครบกำหนด ' + l.due + (l.overdue ? ' · เกินกำหนด' : '') + ' · ' + l.approval));
+      d.appendChild(b);
+    });
+    return d;
+  }
+
+  function renderGroup(g) {
+    var it = el('div', 'item');
+    var t = el('div', 't', g.title);
+    t.appendChild(el('span', 'badge b-mute', g.owned + ' เล่ม'));
+    if (!g.exact) t.appendChild(el('span', 'badge b-warn', 'คำใกล้เคียง'));
+    it.appendChild(t);
+    var meta = [summary(g.copies)];
+    if (g.major) meta.push(g.major + (g.sub ? ' / ' + g.sub : ''));
+    it.appendChild(el('div', 'sub', meta.join(' · ')));
+
+    // เล่มที่ถูกยืมขึ้นก่อนเสมอ
+    var copies = g.copies.slice().sort(function (a, b) { return (b.loans.length ? 1 : 0) - (a.loans.length ? 1 : 0); });
+    var box = el('div', 'copies');
+    copies.forEach(function (x, i) {
+      var line = copyLine(x);
+      if (i >= SHOW_COPIES) line.classList.add('hidden');
+      box.appendChild(line);
+    });
+    it.appendChild(box);
+    if (copies.length > SHOW_COPIES) {
+      var more = el('button', 'small ghost', 'ดูอีก ' + (copies.length - SHOW_COPIES) + ' เล่ม');
+      more.type = 'button';
+      more.onclick = function () {
+        box.querySelectorAll('.copyline.hidden').forEach(function (n) { n.classList.remove('hidden'); });
+        more.remove();
+      };
+      it.appendChild(more);
+    }
+    return it;
+  }
+
+  function search() {
+    var q = $('q').value.trim(), mine = ++seq;
+    renderChips();
+    say('msg', '');
+    $('info').textContent = 'กำลังค้นหา...';
+    run('searchCatalog', [q, current, page], function (r) {
+      if (mine !== seq) return;                 // มีการค้นใหม่แล้ว ทิ้งผลเก่า
+      page = r.page;
+      renderChips(r.counts);
+      var box = $('results'); clear(box);
+      if (!r.total) {
+        $('info').textContent = q ? 'ไม่พบหนังสือที่ใกล้เคียง ลองพิมพ์คำอื่นหรือคำที่สั้นลง' : 'ยังไม่มีหนังสือในสถานะนี้';
+      } else {
+        $('info').textContent = 'พบ ' + r.total + ' รายการ (' + r.books + ' เล่ม)' + (q ? '' : ' เรียงตามชื่อ');
+      }
+      r.items.forEach(function (g) { box.appendChild(renderGroup(g)); });
+      show('pager', r.pages > 1);
+      $('pageInfo').textContent = 'หน้า ' + r.page + ' / ' + r.pages;
+      $('prev').disabled = r.page <= 1;
+      $('next').disabled = r.page >= r.pages;
+    }, function (m) { if (mine === seq) { $('info').textContent = ''; say('msg', m); } });
+  }
+
+  function go(delta) { page += delta; search(); window.scrollTo(0, 0); }
+
+  $('q').addEventListener('input', debounce(function () { page = 1; search(); }, 350));
+  $('prev').onclick = function () { go(-1); };
+  $('next').onclick = function () { go(1); };
+  renderChips();
+  search();
+</script>
+</body>
+</html>

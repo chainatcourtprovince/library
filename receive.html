@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ลงรับหนังสือ · ระบบห้องสมุด</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-page="receive">
+<header class="topbar"><div class="in">
+  <div class="logo">L</div>
+  <div><div class="app">ระบบห้องสมุด</div><div class="pg">ลงรับหนังสือ</div></div>
+  <span class="role">ผู้ลงรับ</span>
+</div></header>
+<main>
+
+  <section id="pinCard" class="card">
+    <label for="pin">PIN ผู้ลงรับ</label>
+    <input id="pin" type="password" autocomplete="off">
+    <button id="pinBtn" class="block" type="button">เข้าใช้งาน</button>
+    <div id="pinMsg" class="msg" role="alert"></div>
+  </section>
+
+  <div id="app" class="hidden">
+    <section id="formCard" class="card">
+      <label for="title">ชื่อหนังสือ</label>
+      <input id="title" type="text" maxlength="300" autocomplete="off">
+
+      <label for="qty">จำนวนเล่ม <span class="hint">(ชื่อเดียวกันหลายเล่ม)</span></label>
+      <input id="qty" type="number" min="1" max="50" value="1" inputmode="numeric">
+
+      <div id="copies"></div>
+
+      <button id="saveBtn" class="block" type="button">บันทึก</button>
+      <div id="msg" class="msg" role="alert"></div>
+    </section>
+
+    <section id="doneCard" class="card hidden">
+      <h2>บันทึกแล้ว — เขียนเลขรับลงตรายางของแต่ละเล่ม</h2>
+      <div id="numbers"></div>
+      <button id="nextBtn" class="block ghost" type="button">ลงรับเล่มถัดไป</button>
+    </section>
+
+    <section class="card">
+      <h2>รอจัดหมวด <span class="hint">— ลงผิด กดยกเลิกได้ที่นี่</span></h2>
+      <div id="waiting" class="list sub">กำลังโหลด...</div>
+    </section>
+  </div>
+</main>
+
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script>
+  function buildCopies() {
+    var n = parseInt($('qty').value, 10);
+    if (!(n >= 1)) n = 1;
+    if (n > 50) n = 50;
+    var box = $('copies'), old = [];
+    box.querySelectorAll('.copy').forEach(function (c) {
+      old.push({ reg: c.querySelector('input[type=text]').value, none: c.querySelector('input[type=checkbox]').checked });
+    });
+    clear(box);
+    for (var k = 0; k < n; k++) {
+      var c = el('div', 'copy');
+      var lb = el('label', null, 'เลขทะเบียนส่วนกลาง' + (n > 1 ? ' เล่มที่ ' + (k + 1) : '') + ' ');
+      lb.appendChild(el('span', 'hint', '(เว้นว่างได้)'));
+      var inp = el('input'); inp.type = 'text'; inp.maxLength = 40; inp.autocomplete = 'off'; inp.inputMode = 'numeric';
+      var ck = el('label', 'check');
+      var cb = el('input'); cb.type = 'checkbox';
+      ck.appendChild(cb); ck.appendChild(document.createTextNode('ไม่มีเลขทะเบียน'));
+      (function (inp, cb) {
+        cb.onchange = function () { inp.disabled = cb.checked; if (cb.checked) inp.value = ''; };
+      })(inp, cb);
+      if (old[k]) { inp.value = old[k].reg; cb.checked = old[k].none; inp.disabled = old[k].none; }
+      c.appendChild(lb); c.appendChild(inp); c.appendChild(ck);
+      box.appendChild(c);
+    }
+  }
+
+  function save() {
+    var title = $('title').value.trim();
+    if (!title) { say('msg', 'กรุณากรอกชื่อหนังสือ'); return; }
+    var items = [];
+    $('copies').querySelectorAll('.copy').forEach(function (c) {
+      items.push({ reg: c.querySelector('input[type=text]').value, none: c.querySelector('input[type=checkbox]').checked });
+    });
+    $('saveBtn').disabled = true;               // กันกดซ้ำ จะได้ไม่ออกเลขซ้อน
+    say('msg', 'กำลังบันทึก...', true);
+    run('receiveBooks', [PIN, { title: title, items: items }], function (res) {
+      say('msg', '');
+      var box = $('numbers'); clear(box);
+      res.numbers.forEach(function (n) { box.appendChild(el('div', 'big', n)); });
+      show('formCard', false); show('doneCard', true);
+      loadWaiting();
+    }, function (m) { say('msg', m); $('saveBtn').disabled = false; });
+  }
+
+  function next() {
+    $('title').value = ''; $('qty').value = 1; clear($('copies')); buildCopies();
+    $('saveBtn').disabled = false; say('msg', '');
+    show('doneCard', false); show('formCard', true); $('title').focus();
+  }
+
+  function loadWaiting() {
+    run('listWaiting', [PIN], function (list) {
+      var box = $('waiting'); clear(box);
+      if (!list.length) { box.textContent = 'ไม่มีเล่มที่รอจัดหมวด'; return; }
+      list.forEach(function (b) {
+        var it = el('div', 'item');
+        it.appendChild(el('div', 't', b.no + '  ' + b.title));
+        it.appendChild(el('div', 'sub', 'เลขทะเบียน: ' + (b.reg || 'ยังไม่กรอก') + ' · รับเมื่อ ' + b.received));
+        var acts = el('div', 'actions');
+        var x = el('button', 'small danger', 'ยกเลิกเลขรับนี้');
+        x.onclick = function () {
+          x.disabled = true;
+          inlineConfirm(it, {
+            placeholder: 'เหตุผล เช่น ลงชื่อหนังสือผิด', required: true, danger: true, label: 'ยืนยันยกเลิก',
+            onConfirm: function (reason, fail) {
+              run('cancelReceive', [PIN, b.no, reason], loadWaiting, fail);
+            }
+          });
+        };
+        acts.appendChild(x); it.appendChild(acts);
+        box.appendChild(it);
+      });
+    }, function (m) { $('waiting').textContent = m; });
+  }
+
+  $('qty').addEventListener('input', buildCopies);
+  $('saveBtn').onclick = save;
+  $('nextBtn').onclick = next;
+  setupLogin('receive', function () { show('app', true); buildCopies(); loadWaiting(); $('title').focus(); });
+</script>
+</body>
+</html>

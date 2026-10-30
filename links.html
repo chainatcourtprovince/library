@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>รวมลิงก์ · ระบบห้องสมุด</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-page="links">
+<header class="topbar"><div class="in">
+  <div class="logo">L</div>
+  <div><div class="app">ระบบห้องสมุด</div><div class="pg">รวมลิงก์</div></div>
+  <span class="role">เมนูหลัก</span>
+</div></header>
+<main>
+
+  <section class="card">
+    <h2>สำหรับทุกคน</h2>
+    <div class="item linkrow">
+      <div class="grow">
+        <div class="t">ยืม-คืนหนังสือ</div>
+        <div class="sub">หน้าที่ใช้ทำ QR หน้าห้องสมุด</div>
+        <div class="url" data-for="./"></div>
+      </div>
+      <a class="btn solid" href="./">เปิด</a>
+    </div>
+    <div class="item linkrow">
+      <div class="grow">
+        <div class="t">ค้นหาหนังสือ</div>
+        <div class="sub">ทุกเล่ม ทุกสถานะ และใครยืมอยู่</div>
+        <div class="url" data-for="search.html"></div>
+      </div>
+      <a class="btn solid" href="search.html">เปิด</a>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>สำหรับเจ้าหน้าที่ <span class="hint">— ต้องใช้ PIN</span></h2>
+    <div class="item linkrow">
+      <div class="grow">
+        <div class="t">ลงรับหนังสือ</div>
+        <div class="sub">ผู้ลงรับ</div>
+        <div class="url" data-for="receive.html"></div>
+      </div>
+      <a class="btn" href="receive.html">เปิด</a>
+    </div>
+    <div class="item linkrow">
+      <div class="grow">
+        <div class="t">จัดหมวดหนังสือ</div>
+        <div class="sub">ผู้จัดหมวด</div>
+        <div class="url" data-for="shelve.html"></div>
+      </div>
+      <a class="btn" href="shelve.html">เปิด</a>
+    </div>
+    <div class="item linkrow">
+      <div class="grow">
+        <div class="t">อนุมัติการยืม</div>
+        <div class="sub">ผู้อนุมัติ</div>
+        <div class="url" data-for="approve.html"></div>
+      </div>
+      <a class="btn" href="approve.html">เปิด</a>
+    </div>
+  </section>
+
+  <section id="sheetCard" class="card hidden">
+    <h2>ข้อมูลหลังบ้าน <span class="hint">— เปิดได้เฉพาะบัญชีหน่วยงาน</span></h2>
+    <div class="item linkrow">
+      <div class="grow">
+        <div class="t">Google Sheets</div>
+        <div class="sub">ตารางหนังสือ ยืม-คืน หมวดหมู่ ตั้งค่า และบันทึกการแก้ไข</div>
+      </div>
+      <a id="sheetLink" class="btn" href="#">เปิด</a>
+    </div>
+  </section>
+
+  <p class="sub">บุ๊กมาร์กหน้านี้ไว้หน้าเดียว แล้วกดเข้าหน้าอื่นจากที่นี่ได้เลย</p>
+</main>
+
+<script src="config.js"></script>
+<script>
+  // แสดงลิงก์เต็มของแต่ละหน้า (ไว้คัดลอกส่งต่อ)
+  document.querySelectorAll('.url[data-for]').forEach(function (d) {
+    d.textContent = new URL(d.getAttribute('data-for'), location.href).href;
+  });
+  var sheet = window.LIB_CONFIG && window.LIB_CONFIG.sheetUrl;
+  if (sheet) {
+    document.getElementById('sheetLink').href = sheet;
+    document.getElementById('sheetCard').classList.remove('hidden');
+  }
+</script>
+</body>
+</html>

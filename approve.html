@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>อนุมัติการยืม · ระบบห้องสมุด</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-page="approve">
+<header class="topbar"><div class="in">
+  <div class="logo">L</div>
+  <div><div class="app">ระบบห้องสมุด</div><div class="pg">อนุมัติการยืม</div></div>
+  <span class="role">ผู้อนุมัติ</span>
+</div></header>
+<main>
+
+  <section id="pinCard" class="card">
+    <label for="pin">PIN ผู้อนุมัติ</label>
+    <input id="pin" type="password" autocomplete="off">
+    <button id="pinBtn" class="block" type="button">เข้าใช้งาน</button>
+    <div id="pinMsg" class="msg" role="alert"></div>
+  </section>
+
+  <div id="app" class="hidden">
+    <section class="card">
+      <h2 id="pendHead">รออนุมัติ</h2>
+      <div class="actions">
+        <button id="selAll" class="small ghost" type="button">เลือกทั้งหมดที่ไม่มีข้อสังเกต</button>
+        <button id="refresh" class="small ghost" type="button">โหลดใหม่</button>
+      </div>
+      <div id="pending" class="list sub">กำลังโหลด...</div>
+      <button id="approveBtn" class="block" type="button">อนุมัติรายการที่เลือก</button>
+      <div id="aMsg" class="msg" role="alert"></div>
+    </section>
+
+    <section class="card">
+      <h2 id="openHead">ยังไม่คืน</h2>
+      <input id="oq" type="search" placeholder="กรองจากชื่อหนังสือ เลขรับ หรือชื่อผู้ยืม" autocomplete="off">
+      <div id="open" class="list sub"></div>
+    </section>
+
+    <section class="card">
+      <h2>ค้นประวัติ — เล่มไหน ใครยืม</h2>
+      <input id="hq" type="search" placeholder="ชื่อหนังสือ เลขรับ หรือชื่อผู้ยืม" autocomplete="off">
+      <div id="hist" class="list sub"></div>
+    </section>
+  </div>
+</main>
+
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script>
+  var DATA = { pending: [], open: [], reasons: [] };
+
+  function dueBadge(x) {
+    if (x.dueState === 'overdue') return el('span', 'badge b-err', 'เกินกำหนด');
+    if (x.dueState === 'soon') return el('span', 'badge b-warn', 'ใกล้ครบกำหนด');
+    return null;
+  }
+
+  function loanLines(it, x) {
+    var t = el('div', 't', x.title);
+    var b = dueBadge(x); if (b) t.appendChild(b);
+    it.appendChild(t);
+    it.appendChild(el('div', 'sub', x.no + ' · ' + x.name + ' (' + x.pos + ')'));
+    it.appendChild(el('div', 'sub', 'ยืม ' + x.borrowed + ' · ครบ ' + x.due + (x.returned ? ' · คืน ' + x.returned : '')));
+    if (x.flag) it.appendChild(el('div', 'sub', 'ข้อสังเกต: ' + x.flag));
+  }
+
+  function renderPending() {
+    var box = $('pending'); clear(box);
+    $('pendHead').textContent = 'รออนุมัติ (' + DATA.pending.length + ')';
+    show('approveBtn', DATA.pending.length > 0);
+    if (!DATA.pending.length) { box.textContent = 'ไม่มีรายการรออนุมัติ'; return; }
+    DATA.pending.forEach(function (x) {
+      var it = el('div', 'item' + (x.flag ? ' flag' : ''));
+      var ck = el('label', 'check');
+      var cb = el('input'); cb.type = 'checkbox'; cb.value = x.id; cb.className = 'pick-id';
+      ck.appendChild(cb); ck.appendChild(document.createTextNode('เลือก · ' + x.id + (x.status !== 'ยืมอยู่' ? ' · ' + x.status : '')));
+      it.appendChild(ck);
+      loanLines(it, x);
+      var acts = el('div', 'actions');
+      var no = el('button', 'small danger', 'ไม่อนุมัติ');
+      no.onclick = function () {
+        no.disabled = true;
+        inlineConfirm(it, {
+          options: DATA.reasons, placeholder: 'รายละเอียดเพิ่มเติม (ถ้ามี)', required: true, danger: true, label: 'ยืนยันไม่อนุมัติ',
+          onConfirm: function (reason, fail) { run('rejectLoan', [PIN, x.id, reason], load, fail); }
+        });
+      };
+      acts.appendChild(no); it.appendChild(acts);
+      box.appendChild(it);
+    });
+  }
+
+  function renderOpen() {
+    var q = $('oq').value.trim().toLowerCase().replace(/\s+/g, '');
+    var box = $('open'); clear(box);
+    $('openHead').textContent = 'ยังไม่คืน (' + DATA.open.length + ')';
+    var list = DATA.open.filter(function (x) { return !q || (x.title + x.no + x.name).toLowerCase().replace(/\s+/g, '').indexOf(q) >= 0; });
+    if (!list.length) { box.textContent = DATA.open.length ? 'ไม่พบ' : 'ไม่มีหนังสือค้างยืม'; return; }
+    list.forEach(function (x) {
+      var it = el('div', 'item');
+      loanLines(it, x);
+      it.appendChild(el('div', 'sub', 'ผลอนุมัติ: ' + x.approval + (x.reason ? ' — ' + x.reason : '')));
+      var acts = el('div', 'actions');
+      var c = el('button', 'small ghost', 'ปิดรายการ (คืนแล้วแต่ไม่ได้สแกน)');
+      c.onclick = function () {
+        c.disabled = true;
+        inlineConfirm(it, {
+          placeholder: 'หมายเหตุ เช่น พบหนังสืออยู่บนชั้นแล้ว', required: true, label: 'ยืนยันปิดรายการ',
+          onConfirm: function (note, fail) { run('closeLoan', [PIN, x.id, note], load, fail); }
+        });
+      };
+      acts.appendChild(c); it.appendChild(acts);
+      box.appendChild(it);
+    });
+  }
+
+  function load() {
+    say('aMsg', '');
+    run('getApproveData', [PIN], function (d) {
+      DATA = d; renderPending(); renderOpen();
+    }, function (m) { say('aMsg', m); });
+  }
+
+  function approve() {
+    var ids = [];
+    document.querySelectorAll('.pick-id:checked').forEach(function (c) { ids.push(c.value); });
+    if (!ids.length) { say('aMsg', 'ยังไม่ได้เลือกรายการ'); return; }
+    $('approveBtn').disabled = true; say('aMsg', 'กำลังบันทึก...', true);
+    run('approveLoans', [PIN, ids], function (res) {
+      $('approveBtn').disabled = false; load();
+      setTimeout(function () { say('aMsg', 'อนุมัติแล้ว ' + res.count + ' รายการ', true); }, 300);
+    }, function (m) { say('aMsg', m); $('approveBtn').disabled = false; });
+  }
+
+  function selectClean() {
+    var ids = {};
+    DATA.pending.forEach(function (x) { if (!x.flag) ids[x.id] = true; });
+    document.querySelectorAll('.pick-id').forEach(function (c) { c.checked = !!ids[c.value]; });
+  }
+
+  var searchHistory = debounce(function () {
+    var q = $('hq').value.trim();
+    var box = $('hist');
+    if (!q) { clear(box); return; }
+    run('searchLoans', [PIN, q], function (list) {
+      clear(box);
+      if (!list.length) { box.textContent = 'ไม่พบ'; return; }
+      list.forEach(function (x) {
+        var it = el('div', 'item');
+        loanLines(it, x);
+        it.appendChild(el('div', 'sub', 'สถานะ: ' + x.status + ' · ผลอนุมัติ: ' + x.approval + (x.reason ? ' — ' + x.reason : '') + (x.note ? ' · ' + x.note : '')));
+        box.appendChild(it);
+      });
+    }, function (m) { box.textContent = m; });
+  }, 300);
+
+  $('approveBtn').onclick = approve;
+  $('selAll').onclick = selectClean;
+  $('refresh').onclick = load;
+  $('oq').addEventListener('input', renderOpen);
+  $('hq').addEventListener('input', searchHistory);
+  setupLogin('approve', function () { show('app', true); load(); });
+</script>
+</body>
+</html>

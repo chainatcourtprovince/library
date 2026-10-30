@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>จัดหมวดหนังสือ · ระบบห้องสมุด</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-page="shelve">
+<header class="topbar"><div class="in">
+  <div class="logo">L</div>
+  <div><div class="app">ระบบห้องสมุด</div><div class="pg">จัดหมวดหนังสือ</div></div>
+  <span class="role">ผู้จัดหมวด</span>
+</div></header>
+<main>
+
+  <section id="pinCard" class="card">
+    <label for="pin">PIN ผู้จัดหมวด</label>
+    <input id="pin" type="password" autocomplete="off">
+    <button id="pinBtn" class="block" type="button">เข้าใช้งาน</button>
+    <div id="pinMsg" class="msg" role="alert"></div>
+  </section>
+
+  <div id="app" class="hidden">
+    <section id="pickCard" class="card">
+      <div class="tabs">
+        <button id="tabWait" type="button">รอจัดหมวด</button>
+        <button id="tabFix" type="button" class="ghost">แก้หมวดเล่มบนชั้น</button>
+      </div>
+      <div id="waitPane">
+        <input id="wq" type="search" placeholder="กรองรายการ เช่น ชื่อหนังสือ หรือเลขรับ" autocomplete="off">
+        <div class="actions">
+          <button id="selAll" type="button" class="small ghost">เลือกทั้งหมดที่แสดง</button>
+          <button id="selNone" type="button" class="small ghost">ล้างที่เลือก</button>
+        </div>
+        <div id="waiting" class="list sub">กำลังโหลด...</div>
+        <div class="sticky">
+          <button id="batchBtn" type="button" class="block" disabled>ติ๊กเลือกหนังสือก่อน</button>
+        </div>
+      </div>
+      <div id="fixPane" class="hidden">
+        <input id="fixQ" type="search" placeholder="ค้นจากเลขรับ ชื่อหนังสือ หรือเลขทะเบียน" autocomplete="off">
+        <div id="fixList" class="list sub"></div>
+      </div>
+      <div id="doneMsg" class="msg ok"></div>
+    </section>
+
+    <section id="formCard" class="card hidden">
+      <div id="bookHead" class="t"></div>
+      <div id="bookSub" class="sub"></div>
+
+      <label for="major">หมวดใหญ่</label>
+      <select id="major"></select>
+
+      <label for="callNo">เลขเรียกหนังสือ <span id="callHint" class="hint">(จากสติกเกอร์ส่วนกลาง — เว้นว่างได้)</span></label>
+      <input id="callNo" type="text" maxlength="60" autocomplete="off" placeholder="เช่น 343.3923 ส5ห 2569">
+      <div id="suggest" class="sub"></div>
+
+      <div id="subWrap">
+        <label for="sub">หมวดย่อย</label>
+        <select id="sub"></select>
+      </div>
+
+      <button id="saveBtn" class="block" type="button">บันทึก</button>
+      <button id="backBtn" class="block ghost" type="button">กลับ</button>
+      <div id="msg" class="msg" role="alert"></div>
+    </section>
+  </div>
+</main>
+
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script>
+  var CATS = { majors: [] }, current = null, WAITING = [], SELECTED = {};
+
+  /** แนะนำหมวดย่อยจากเลขเรียก: เลขขึ้นต้นที่ยาวที่สุดในหมวดใหญ่ที่เลือก (สำรอง: หลักร้อยแบบดิวอี้) */
+  function suggestSub(subs, callNo) {
+    var tok = String(callNo || '').trim().split(/\s+/)[0].replace(/[^\d.]/g, '');
+    if (!tok || !/^\d/.test(tok)) return null;
+    var best = null;
+    subs.forEach(function (s) {
+      if (s.code && tok.indexOf(s.code) === 0 && (!best || s.code.length > best.code.length)) best = s;
+    });
+    if (best) return best;
+    var hundred = tok.charAt(0) + '00';
+    return subs.filter(function (s) { return s.code === hundred; })[0] || null;
+  }
+
+  function majorObj() {
+    var v = $('major').value;
+    return CATS.majors.filter(function (m) { return m.name === v; })[0] || null;
+  }
+
+  function fillMajors() {
+    var s = $('major'); clear(s);
+    var o = el('option', null, '— เลือกหมวดใหญ่ —'); o.value = ''; s.appendChild(o);
+    CATS.majors.forEach(function (m) {
+      var op = el('option', null, m.name + (m.color ? '  (แถบ: ' + m.color + ')' : ''));
+      op.value = m.name; s.appendChild(op);
+    });
+  }
+
+  function fillSubs(keep) {
+    var m = majorObj(), s = $('sub'); clear(s);
+    var o = el('option', null, '— ไม่ระบุหมวดย่อย —'); o.value = ''; s.appendChild(o);
+    if (!m || !m.subs.length) { show('subWrap', false); return; }
+    m.subs.forEach(function (x) {
+      var op = el('option', null, (x.code ? x.code + '  ' : '') + x.name); op.value = x.name; s.appendChild(op);
+    });
+    show('subWrap', true);
+    if (keep) s.value = keep;
+  }
+
+  function applySuggestion() {
+    var m = majorObj(), cn = $('callNo').value;
+    if (!cn.trim()) { $('suggest').textContent = ''; return; }
+    if (!m) { $('suggest').textContent = 'เลือกหมวดใหญ่ก่อน ระบบจะแนะนำหมวดย่อยจากเลขเรียกให้'; return; }
+    var best = suggestSub(m.subs, cn);
+    if (best) {
+      $('sub').value = best.name;
+      $('suggest').textContent = 'แนะนำ: ' + (best.code ? best.code + ' ' : '') + best.name + ' (เปลี่ยนได้)';
+    } else {
+      $('suggest').textContent = 'ไม่พบหมวดย่อยที่ตรงกับเลขนี้ กรุณาเลือกเอง';
+    }
+  }
+
+  function openForm(b) {
+    current = { single: b };
+    $('bookHead').textContent = b.no + '  ' + b.title;
+    $('bookSub').textContent = 'เลขทะเบียน: ' + (b.reg || 'ยังไม่กรอก') + (b.major ? ' · หมวดเดิม: ' + b.major + (b.sub ? ' / ' + b.sub : '') : '');
+    $('callHint').textContent = '(จากสติกเกอร์ส่วนกลาง — เว้นว่างได้)';
+    $('major').value = b.major || '';
+    fillSubs(b.sub || '');
+    $('callNo').value = b.callNo || '';
+    openCard();
+  }
+
+  function openBatch() {
+    var list = WAITING.filter(function (b) { return SELECTED[b.no]; });
+    if (!list.length) return;
+    current = { batch: list };
+    $('bookHead').textContent = 'จัดหมวดพร้อมกัน ' + list.length + ' เล่ม';
+    var names = list.slice(0, 8).map(function (b) { return b.no + ' ' + b.title; });
+    if (list.length > 8) names.push('… และอีก ' + (list.length - 8) + ' เล่ม');
+    $('bookSub').textContent = names.join(' · ');
+    $('callHint').textContent = list.length > 1
+      ? '(ใช้กับทุกเล่มที่เลือก — ถ้าแต่ละเล่มเลขไม่เหมือนกัน ให้เว้นว่าง)'
+      : '(จากสติกเกอร์ส่วนกลาง — เว้นว่างได้)';
+    $('major').value = '';
+    fillSubs('');
+    $('callNo').value = '';
+    openCard();
+  }
+
+  function openCard() {
+    $('suggest').textContent = '';
+    $('saveBtn').disabled = false; say('msg', ''); say('doneMsg', '', true);
+    show('pickCard', false); show('formCard', true);
+    window.scrollTo(0, 0);
+  }
+
+  function back() { current = null; show('formCard', false); show('pickCard', true); }
+
+  function save() {
+    if (!$('major').value) { say('msg', 'กรุณาเลือกหมวดใหญ่'); return; }
+    $('saveBtn').disabled = true; say('msg', 'กำลังบันทึก...', true);
+    var base = { major: $('major').value, sub: $('sub').value, callNo: $('callNo').value };
+    if (current.batch) {
+      base.nos = current.batch.map(function (b) { return b.no; });
+      run('classifyBooks', [PIN, base], function (res) {
+        SELECTED = {};
+        back();
+        say('doneMsg', 'จัดหมวดแล้ว ' + res.count + ' เล่ม — นำขึ้นชั้นได้เลย' +
+          (res.skipped.length ? ' (ข้าม ' + res.skipped.join(', ') + ' เพราะถูกยกเลิกหรือไม่พบ)' : ''), true);
+        load();
+      }, function (m) { say('msg', m); $('saveBtn').disabled = false; });
+      return;
+    }
+    base.no = current.single.no;
+    run('classifyBook', [PIN, base], function (res) {
+      back();
+      say('doneMsg', (res.first ? 'จัดหมวดแล้ว: ' : 'แก้หมวดแล้ว: ') + res.no + ' — นำขึ้นชั้นได้เลย', true);
+      load();
+      if (!$('fixPane').classList.contains('hidden')) search();
+    }, function (m) { say('msg', m); $('saveBtn').disabled = false; });
+  }
+
+  // ---------- รายการรอจัดหมวด: ติ๊กเลือกได้หลายเล่ม ----------
+  function visibleWaiting() {
+    var q = $('wq').value.trim().toLowerCase().replace(/\s+/g, '');
+    return WAITING.filter(function (b) { return !q || (b.no + b.title + b.reg).toLowerCase().replace(/\s+/g, '').indexOf(q) >= 0; });
+  }
+
+  function updateBatchBtn() {
+    var n = Object.keys(SELECTED).length;
+    $('batchBtn').disabled = !n;
+    $('batchBtn').textContent = n ? 'จัดหมวด ' + n + ' เล่มที่เลือก' : 'ติ๊กเลือกหนังสือก่อน';
+  }
+
+  function renderWaiting() {
+    var box = $('waiting'); clear(box);
+    $('tabWait').textContent = 'รอจัดหมวด (' + WAITING.length + ')';
+    var list = visibleWaiting();
+    if (!list.length) { box.textContent = WAITING.length ? 'ไม่พบ' : 'ไม่มีเล่มที่รอจัดหมวด'; updateBatchBtn(); return; }
+    list.forEach(function (b) {
+      var it = el('label', 'item pick selrow' + (SELECTED[b.no] ? ' sel' : ''));
+      var cb = el('input'); cb.type = 'checkbox'; cb.checked = !!SELECTED[b.no];
+      var txt = el('div', 'grow');
+      txt.appendChild(el('div', 't', b.no + '  ' + b.title));
+      txt.appendChild(el('div', 'sub', 'เลขทะเบียน: ' + (b.reg || 'ยังไม่กรอก') + ' · รับเมื่อ ' + b.received));
+      it.appendChild(cb); it.appendChild(txt);
+      cb.onchange = function () {
+        if (cb.checked) SELECTED[b.no] = true; else delete SELECTED[b.no];
+        it.classList.toggle('sel', cb.checked);
+        updateBatchBtn();
+      };
+      box.appendChild(it);
+    });
+    updateBatchBtn();
+  }
+
+  function renderBooks(box, list, empty) {
+    clear(box);
+    if (!list.length) { box.textContent = empty; return; }
+    list.forEach(function (b) {
+      var it = el('div', 'item pick');
+      it.appendChild(el('div', 't', b.no + '  ' + b.title));
+      it.appendChild(el('div', 'sub', b.major ? b.major + (b.sub ? ' / ' + b.sub : '') : 'รับเมื่อ ' + b.received));
+      it.onclick = function () { openForm(b); };
+      box.appendChild(it);
+    });
+  }
+
+  function load() {
+    run('getShelveData', [PIN], function (d) {
+      CATS = d.cats; fillMajors();
+      WAITING = d.waiting;
+      var still = {};                                   // ตัดเล่มที่ไม่อยู่ในรายการแล้วออกจากที่เลือก
+      WAITING.forEach(function (b) { if (SELECTED[b.no]) still[b.no] = true; });
+      SELECTED = still;
+      renderWaiting();
+    }, function (m) { $('waiting').textContent = m; });
+  }
+
+  var search = debounce(function () {
+    var q = $('fixQ').value.trim();
+    if (!q) { clear($('fixList')); return; }
+    run('searchShelved', [PIN, q], function (list) {
+      renderBooks($('fixList'), list, 'ไม่พบ');
+    }, function (m) { $('fixList').textContent = m; });
+  }, 300);
+
+  function tab(fix) {
+    show('waitPane', !fix); show('fixPane', fix);
+    $('tabWait').className = fix ? 'ghost' : '';
+    $('tabFix').className = fix ? '' : 'ghost';
+    if (fix) $('fixQ').focus();
+  }
+
+  $('major').onchange = function () { fillSubs(''); applySuggestion(); };
+  $('callNo').addEventListener('input', debounce(applySuggestion, 250));
+  $('saveBtn').onclick = save;
+  $('batchBtn').onclick = openBatch;
+  $('wq').addEventListener('input', renderWaiting);
+  $('selAll').onclick = function () { visibleWaiting().forEach(function (b) { SELECTED[b.no] = true; }); renderWaiting(); };
+  $('selNone').onclick = function () { SELECTED = {}; renderWaiting(); };
+  $('backBtn').onclick = back;
+  $('fixQ').addEventListener('input', search);
+  $('tabWait').onclick = function () { tab(false); };
+  $('tabFix').onclick = function () { tab(true); };
+  setupLogin('shelve', function () { show('app', true); load(); });
+</script>
+</body>
+</html>

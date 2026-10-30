@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ยืม-คืนหนังสือ · ระบบห้องสมุด</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-page="loan">
+<header class="topbar"><div class="in">
+  <div class="logo">L</div>
+  <div><div class="app">ระบบห้องสมุด</div><div class="pg">ยืม-คืนหนังสือ</div></div>
+  <span class="role">ทุกคน</span>
+</div></header>
+<main>
+
+  <section id="home" class="card">
+    <div class="big-btns">
+      <button id="goBorrow" type="button">ยืมหนังสือ</button>
+      <button id="goReturn" type="button" class="ghost">คืนหนังสือ</button>
+    </div>
+    <a class="btn" href="search.html">ค้นหาหนังสือ / ดูว่าใครยืมอยู่</a>
+  </section>
+
+  <!-- ยืม -->
+  <section id="borrow" class="card hidden">
+    <h2>ยืมหนังสือ</h2>
+    <label for="q">ค้นหนังสือ</label>
+    <input id="q" type="search" placeholder="ชื่อหนังสือ หรือเลขรับ เช่น L12/2569" autocomplete="off">
+    <div id="results" class="list"></div>
+
+    <div id="who" class="hidden">
+      <label for="name">ชื่อ-นามสกุลผู้ยืม</label>
+      <input id="name" type="text" maxlength="80" autocomplete="name">
+      <label>ตำแหน่ง</label>
+      <div id="positions" class="choice"></div>
+      <button id="borrowBtn" class="block" type="button">ยืนยันการยืม</button>
+    </div>
+    <div id="bMsg" class="msg" role="alert"></div>
+    <button class="block ghost backHome" type="button">กลับ</button>
+  </section>
+
+  <!-- คืน -->
+  <section id="ret" class="card hidden">
+    <h2>คืนหนังสือ</h2>
+    <input id="rq" type="search" placeholder="พิมพ์ชื่อหนังสือ หรือชื่อผู้ยืม เพื่อกรอง" autocomplete="off">
+    <div id="open" class="list sub">กำลังโหลด...</div>
+    <button id="returnBtn" class="block hidden" type="button">ยืนยันการคืน</button>
+    <div id="rMsg" class="msg" role="alert"></div>
+    <button class="block ghost backHome" type="button">กลับ</button>
+  </section>
+
+  <!-- สำเร็จ -->
+  <section id="done" class="card hidden">
+    <div id="doneTitle" class="big"></div>
+    <div id="doneText"></div>
+    <button class="block backHome" type="button">เสร็จสิ้น</button>
+  </section>
+</main>
+
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script>
+  var picked = null, pickedLoan = null, OPEN = [], SETTINGS = { positions: [], days: 15 };
+
+  function go(view) {
+    ['home', 'borrow', 'ret', 'done'].forEach(function (v) { show(v, v === view); });
+    window.scrollTo(0, 0);
+  }
+
+  // ---------- ยืม ----------
+  function startBorrow() {
+    picked = null; $('q').value = ''; clear($('results')); show('who', false); say('bMsg', '');
+    $('borrowBtn').disabled = false;
+    try { var n = localStorage.getItem('libName'); if (n) $('name').value = n; } catch (e) {}
+    go('borrow'); $('q').focus();
+  }
+
+  var searchBooks = debounce(function () {
+    var q = $('q').value.trim();
+    if (!q) { clear($('results')); return; }
+    run('searchShelf', [q], function (list) {
+      var box = $('results'); clear(box);
+      if (!list.length) { box.appendChild(el('div', 'sub', 'ไม่พบหนังสือ ลองพิมพ์คำอื่น')); return; }
+      list.forEach(function (b) {
+        if (b.onLoan) {
+          // เล่มที่ถูกยืมอยู่: บอกว่าใครยืม และกดเลือกไม่ได้
+          var busy = el('div', 'item busy');
+          var bt = el('div', 't', b.title);
+          bt.appendChild(el('span', 'badge b-warn', 'ถูกยืมอยู่'));
+          busy.appendChild(bt);
+          busy.appendChild(el('div', 'sub', b.no + (b.callNo ? ' · ' + b.callNo : '')));
+          var l = el('div', 'loan');
+          l.appendChild(el('div', null, 'ยืมโดย ' + b.loan.name + ' (' + b.loan.pos + ')'));
+          l.appendChild(el('div', 'sub', 'ตั้งแต่ ' + b.loan.borrowed + ' · ครบกำหนด ' + b.loan.due));
+          busy.appendChild(l);
+          busy.appendChild(el('div', 'sub', 'ยืมไม่ได้จนกว่าจะคืน ถ้าหนังสืออยู่ในมือท่านแล้ว กรุณาแจ้งผู้อนุมัติ'));
+          box.appendChild(busy);
+          return;
+        }
+        var it = el('div', 'item pick' + (picked && picked.no === b.no ? ' sel' : ''));
+        var t = el('div', 't', b.title);
+        t.appendChild(el('span', 'badge b-ok', 'ว่าง'));
+        it.appendChild(t);
+        it.appendChild(el('div', 'sub', b.no + (b.callNo ? ' · ' + b.callNo : '')));
+        it.onclick = function () {
+          picked = b;
+          box.querySelectorAll('.item').forEach(function (x) { x.classList.remove('sel'); });
+          it.classList.add('sel');
+          show('who', true); say('bMsg', '');
+          if (!$('name').value) $('name').focus();
+        };
+        box.appendChild(it);
+      });
+    }, function (m) { say('bMsg', m); });
+  }, 300);
+
+  function renderPositions() {
+    var box = $('positions'); clear(box);
+    SETTINGS.positions.forEach(function (p, i) {
+      var lb = el('label');
+      var r = el('input'); r.type = 'radio'; r.name = 'pos'; r.value = p; if (i === 0) r.checked = true;
+      lb.appendChild(r); lb.appendChild(document.createTextNode(p));
+      box.appendChild(lb);
+    });
+  }
+
+  function borrow() {
+    if (!picked) { say('bMsg', 'กรุณาเลือกหนังสือ'); return; }
+    var name = $('name').value.trim();
+    if (name.length < 2) { say('bMsg', 'กรุณากรอกชื่อผู้ยืม'); return; }
+    var pos = (document.querySelector('input[name=pos]:checked') || {}).value;
+    if (!pos) { say('bMsg', 'กรุณาเลือกตำแหน่ง'); return; }
+    $('borrowBtn').disabled = true; say('bMsg', 'กำลังบันทึก...', true);
+    run('borrowBook', [{ no: picked.no, name: name, position: pos }], function (res) {
+      try { localStorage.setItem('libName', name); } catch (e) {}
+      $('doneTitle').textContent = 'บันทึกการยืมแล้ว';
+      $('doneText').textContent = res.title + ' — กรุณาคืนภายในวันที่ ' + res.due + ' นำหนังสือไปได้เลย';
+      go('done');
+    }, function (m) { say('bMsg', m); $('borrowBtn').disabled = false; });
+  }
+
+  // ---------- คืน ----------
+  function startReturn() {
+    pickedLoan = null; $('rq').value = ''; say('rMsg', ''); show('returnBtn', false);
+    $('returnBtn').disabled = false;
+    $('open').textContent = 'กำลังโหลด...';
+    go('ret');
+    run('listOpenLoans', [], function (list) { OPEN = list; renderOpen(); }, function (m) { $('open').textContent = m; });
+  }
+
+  function renderOpen() {
+    var q = $('rq').value.trim().toLowerCase().replace(/\s+/g, '');
+    var box = $('open'); clear(box);
+    var list = OPEN.filter(function (x) { return !q || (x.title + x.no + x.name).toLowerCase().replace(/\s+/g, '').indexOf(q) >= 0; });
+    if (!list.length) { box.textContent = OPEN.length ? 'ไม่พบ' : 'ไม่มีรายการที่ยังไม่คืน'; return; }
+    list.forEach(function (x) {
+      var it = el('div', 'item pick' + (pickedLoan && pickedLoan.id === x.id ? ' sel' : ''));
+      it.appendChild(el('div', 't', x.title));
+      it.appendChild(el('div', 'sub', x.no + ' · ' + x.name + ' · ยืมเมื่อ ' + x.borrowed));
+      it.onclick = function () {
+        pickedLoan = x;
+        box.querySelectorAll('.item').forEach(function (n) { n.classList.remove('sel'); });
+        it.classList.add('sel'); show('returnBtn', true); say('rMsg', '');
+      };
+      box.appendChild(it);
+    });
+  }
+
+  function giveBack() {
+    if (!pickedLoan) return;
+    $('returnBtn').disabled = true; say('rMsg', 'กำลังบันทึก...', true);
+    run('returnBook', [pickedLoan.id], function (res) {
+      $('doneTitle').textContent = 'บันทึกการคืนแล้ว';
+      $('doneText').textContent = res.title + ' — กรุณาวางหนังสือคืนที่ชั้น ขอบคุณครับ/ค่ะ';
+      go('done');
+    }, function (m) { say('rMsg', m); $('returnBtn').disabled = false; });
+  }
+
+  $('goBorrow').onclick = startBorrow;
+  $('goReturn').onclick = startReturn;
+  $('q').addEventListener('input', searchBooks);
+  $('rq').addEventListener('input', renderOpen);
+  $('borrowBtn').onclick = borrow;
+  $('returnBtn').onclick = giveBack;
+  document.querySelectorAll('.backHome').forEach(function (b) { b.onclick = function () { go('home'); }; });
+  run('getLoanSettings', [], function (s) { SETTINGS = s; renderPositions(); }, function () {});
+</script>
+</body>
+</html>
